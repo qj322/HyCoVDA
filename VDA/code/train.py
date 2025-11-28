@@ -199,7 +199,7 @@ def main():
         train_adj = build_bipartite_adj(num_drugs, num_viruses, train_pos)
         H_d_sp, H_v_sp = build_incidence_from_bipartite(train_adj, drop_size1=False)
 
-        # 注意：这里我们传递未经 row-stochasticize 的原始二部图给模型
+
         adj_tensor = to_torch_sparse_from_scipy(train_adj.tocoo(), device)
         H_d_tensor = to_torch_sparse_from_scipy(H_d_sp.tocoo(), device)
         H_v_tensor = to_torch_sparse_from_scipy(H_v_sp.tocoo(), device)
