@@ -16,7 +16,7 @@ PATH_GLOBAL_POS   = "/home/qhjiang/works/VDA/data/drug_disease.txt"
 FOLD_TRAIN_FILES  = [f"/home/qhjiang/works/VDA/data/train_{i}.txt" for i in range(5)]
 FOLD_TEST_FILES   = [f"/home/qhjiang/works/VDA/data/test_{i}.txt"  for i in range(5)]
 RESULTS_DIR       = "./results_vda_folds" 
-# ======== 与训练保持一致的超参（用于构建模型与负样本）========
+
 SEED              = 2025
 LATDIM            = 128
 GAT_DROPOUT       = 0.1
@@ -25,7 +25,7 @@ TEMPERATURE       = 0.05
 EDGE_DROP_RATE    = 0 
 DEG_LOSS_WEIGHT   = 0.4
 LAYERS            = 1
-TEST_NEG_PER_POS  = 1    # 测试集负样本倍率（训练脚本里用的值）
+TEST_NEG_PER_POS  = 1    
 
 def get_device() -> torch.device:
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -34,15 +34,14 @@ def main():
     device = get_device()
     print(f"Device: {device}")
 
-    # 读取索引（可为空；规模可由数据推断）
+
     drug_map  = load_indices_txt(PATH_DRUG_INDEX) if os.path.exists(PATH_DRUG_INDEX) else {}
     virus_map = load_indices_txt(PATH_VIRUS_INDEX) if os.path.exists(PATH_VIRUS_INDEX) else {}
 
-    # 全局阳性（负样本屏蔽集合）
     global_pos = load_pairs_txt(PATH_GLOBAL_POS) if os.path.exists(PATH_GLOBAL_POS) else np.empty((0,2), dtype=np.int64)
     global_pos_set = build_pos_set(global_pos)
 
-    # 读取 5 折数据，并推断规模
+
     folds = []
     max_d = -1; max_v = -1
     for i in range(5):
@@ -67,16 +66,16 @@ def main():
     for fold_id, (train_pos, test_pos) in enumerate(folds, start=0):
         print(f"\n===== Eval Fold {fold_id} =====  train={len(train_pos)}  test={len(test_pos)}")
 
-        # 构建与训练期相同的图（使用该折的训练集）
+
         train_adj = build_bipartite_adj(num_drugs, num_viruses, train_pos)
         adj_tensor = to_torch_sparse_from_scipy(train_adj.tocoo(), device)
         
-        # Incidence matrices for hypergraph are built from the raw bipartite graph
+
         H_d_sp, H_v_sp = build_incidence_from_bipartite(train_adj, drop_size1=False)
         H_d_tensor = to_torch_sparse_from_scipy(H_d_sp.tocoo(), device)
         H_v_tensor = to_torch_sparse_from_scipy(H_v_sp.tocoo(), device)
 
-        # 初始化与训练一致的模型结构
+
         model = HyCoVDA(num_drugs, num_viruses,
                            adj_dv=adj_tensor, 
                            H_d=H_d_tensor, H_v=H_v_tensor,
@@ -87,7 +86,7 @@ def main():
                            n_layers = LAYERS,
                            device=device).to(device)
 
-        # 加载该折的最佳 checkpoint
+
         ckpt_path = os.path.join(RESULTS_DIR, f"best_model_fold{fold_id}.pt")
         if not os.path.exists(ckpt_path):
             print(f"[Fold {fold_id}] WARNING: checkpoint not found -> {ckpt_path}")
@@ -96,20 +95,20 @@ def main():
         model.load_state_dict(ckpt["model_state"])
         model.eval() # Set model to evaluation mode
 
-        # 生成与训练期间一致的“固定测试负样本”（同一随机种子 + 全局屏蔽）
+
         test_neg_fixed = sample_fixed_negatives(
             num_drugs, num_viruses, global_pos_set,
             len(test_pos) * TEST_NEG_PER_POS,
             seed=SEED + 1000 * fold_id
         )
 
-        # 评估
+       
         test_auc, test_aupr, test_f1, test_precision, test_recall, test_acc = eval_on_pairs(
             model, test_pos, num_drugs, num_viruses,
             fixed_neg_pairs=test_neg_fixed, device=device
         )
 
-        # 打印：重新评估结果 + ckpt中记录的最佳值（便于比对）
+       
         rec_auc  = ckpt.get("test_auc", None)
         rec_aupr = ckpt.get("test_aupr", None)
         print(f"[Fold {fold_id}] Loaded ckpt epoch={ckpt.get('epoch','?')}")
