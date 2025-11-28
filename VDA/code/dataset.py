@@ -1,6 +1,3 @@
-# ==============================
-# dataset.py (v4: 读取预分好五折 & 全局去重负样本)
-# ==============================
 from typing import Tuple, Dict, Iterable, Set
 import numpy as np
 import scipy.sparse as sp
@@ -9,7 +6,6 @@ import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.metrics import precision_recall_curve, accuracy_score
 
-# -------- 基础读取 --------
 
 def load_indices_txt(path: str) -> Dict[str, int]:
     mp: Dict[str, int] = {}
@@ -33,7 +29,6 @@ def _parse_two_ints(line: str) -> Tuple[int, int] | None:
     if len(parts) < 2:
         return None
     try:
-        # 兼容可能存在的第三列 label（忽略）
         d = int(parts[0]); v = int(parts[1])
         return d, v
     except Exception:
@@ -50,7 +45,6 @@ def load_pairs_txt(path: str) -> np.ndarray:
     return np.array(pairs, dtype=np.int64)
 
 
-# -------- 构图 --------
 
 def build_bipartite_adj(num_drugs: int, num_viruses: int, pos_pairs: np.ndarray) -> sp.csr_matrix:
     if len(pos_pairs) == 0:
@@ -75,7 +69,6 @@ def row_stochasticize_csr(adj: sp.csr_matrix) -> sp.csr_matrix:
 
 def build_incidence_from_bipartite(train_adj: sp.csr_matrix, drop_size1: bool = False) -> Tuple[sp.csr_matrix, sp.csr_matrix]:
     D, V = train_adj.shape
-    # 病毒列 -> 药物超边
     csc = train_adj.tocsc()
     d_rows, d_cols = [], []
     e_id = 0
@@ -90,7 +83,6 @@ def build_incidence_from_bipartite(train_adj: sp.csr_matrix, drop_size1: bool = 
     H_d = (coo_matrix((np.ones(len(d_rows), dtype=np.float32), (np.array(d_rows), np.array(d_cols))),
                       shape=(D, (max(d_cols)+1 if d_cols else 1)), dtype=np.float32).tocsr()
            if len(d_rows) else sp.csr_matrix((D, 1), dtype=np.float32))
-    # 药物行 -> 病毒超边
     d_rows2, d_cols2 = [], []
     e2 = 0
     for d in range(D):
@@ -116,7 +108,6 @@ def to_torch_sparse_from_scipy(m: sp.coo_matrix, device: torch.device) -> torch.
     return torch.sparse_coo_tensor(idx_t, dat_t, m.shape, device=device)
 
 
-# -------- 评估（固定负样本） --------
 
 def build_pos_set(pairs: Iterable[Tuple[int, int]]) -> Set[Tuple[int, int]]:
     return set((int(d), int(v)) for d, v in pairs)
@@ -137,7 +128,6 @@ def sample_fixed_negatives(num_drugs: int,
             negs.append((d, v))
         tried += 1
     if len(negs) < count:
-        # 兜底：补齐
         all_pairs = [(d, v) for d in range(num_drugs) for v in range(num_viruses) if (d, v) not in pos_set]
         replace = len(all_pairs) < (count - len(negs))
         extra_idx = rng.choice(len(all_pairs), size=(count - len(negs)), replace=replace)
@@ -171,30 +161,24 @@ def eval_on_pairs(model,
         scores.append(pred.detach().cpu().numpy())
     scores = np.concatenate(scores, axis=0)
 
-    # 1. Calculate threshold-independent metrics
     auc  = roc_auc_score(labels, scores) if len(np.unique(labels)) > 1 else 0.5
     aupr = average_precision_score(labels, scores)
 
-    # 2. Find optimal F1-score and its corresponding metrics
-    # precision_recall_curve returns arrays sorted by threshold
     precision, recall, thresholds = precision_recall_curve(labels, scores)
 
-    # Calculate F1 for all thresholds, slicing to match array lengths
-    # Add 1e-8 to avoid division by zero
+
     f1_scores = 2 * (precision[:-1] * recall[:-1]) / (precision[:-1] + recall[:-1] + 1e-8)
 
-    # Find the index of the best F1 score
+ 
     best_f1_idx = np.argmax(f1_scores)
 
-    # Get the metrics at this best F1 index
     best_f1 = f1_scores[best_f1_idx]
     best_precision = precision[best_f1_idx]
     best_recall = recall[best_f1_idx]
 
-    # Get the threshold that gave the best F1
+
     best_threshold = thresholds[best_f1_idx]
 
-    # 3. Calculate Accuracy at that specific threshold
     y_pred_at_best_f1 = (scores >= best_threshold).astype(int)
     accuracy = accuracy_score(labels, y_pred_at_best_f1)
 
