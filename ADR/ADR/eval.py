@@ -10,12 +10,12 @@ from dataset import (
 from model import HyCoVDA
 
 
-PATH_DRUG_INDEX   = "/home/qhjiang/works/ADR/drug_index.txt" 
-PATH_VIRUS_INDEX  = "/home/qhjiang/works/ADR/disease_index.txt"
-PATH_GLOBAL_POS   = "/home/qhjiang/works/ADR/drug_disease.txt"
-FOLD_TRAIN_FILES  = [f"/home/qhjiang/works/ADR/train_{i}.txt" for i in range(5)]
-FOLD_TEST_FILES   = [f"/home/qhjiang/works/ADR/test_{i}.txt"  for i in range(5)]
-RESULTS_DIR       = "./results_adr_folds"    # <-- Updated to match train_v1_2.py
+PATH_DRUG_INDEX   = "/home/qhjiang/works/VDA/drug_index.txt" 
+PATH_VIRUS_INDEX  = "/home/qhjiang/works/VDA/disease_index.txt"
+PATH_GLOBAL_POS   = "/home/qhjiang/works/VDA/drug_disease.txt"
+FOLD_TRAIN_FILES  = [f"/home/qhjiang/works/VDA/train_{i}.txt" for i in range(5)]
+FOLD_TEST_FILES   = [f"/home/qhjiang/works/VDA/test_{i}.txt"  for i in range(5)]
+RESULTS_DIR       = "./results_vda_folds"   
 
 # ======== 与训练保持一致的超参（用于构建模型与负样本）========
 SEED              = 2025
