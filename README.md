@@ -14,7 +14,8 @@ cd HyCoVDA
 ```bash
 conda create -n hycovda python=3.10
 conda activate hycovda
-pip install -r requirements.txt
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+conda install numpy scipy scikit-learn -y
 ```
 ## Model Training
 
