@@ -7,7 +7,7 @@ from dataset import (
     build_incidence_from_bipartite, to_torch_sparse_from_scipy, eval_on_pairs,
     build_pos_set, sample_fixed_negatives
 )
-from model import CoBiHADR
+from model import HyCoVDA
 
 
 PATH_DRUG_INDEX   = "/home/qhjiang/works/ADR/drug_index.txt" 
@@ -78,7 +78,7 @@ def main():
         H_v_tensor = to_torch_sparse_from_scipy(H_v_sp.tocoo(), device)
 
         # 初始化与训练一致的模型结构
-        model = CoBiHADR(num_drugs, num_viruses,
+        model = HyCoVDA(num_drugs, num_viruses,
                            adj_dv=adj_tensor, 
                            H_d=H_d_tensor, H_v=H_v_tensor,
                            latdim=LATDIM,
