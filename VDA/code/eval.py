@@ -1,0 +1,142 @@
+import os
+import numpy as np
+import torch
+
+from dataset import (
+    load_indices_txt, load_pairs_txt, build_bipartite_adj, 
+    build_incidence_from_bipartite, to_torch_sparse_from_scipy, eval_on_pairs,
+    build_pos_set, sample_fixed_negatives
+)
+from model import HyCoVDA
+
+
+PATH_DRUG_INDEX   = "/home/qhjiang/works/VDA/data/drug_index.txt" 
+PATH_VIRUS_INDEX  = "/home/qhjiang/works/VDA/data/disease_index.txt"
+PATH_GLOBAL_POS   = "/home/qhjiang/works/VDA/data/drug_disease.txt"
+FOLD_TRAIN_FILES  = [f"/home/qhjiang/works/VDA/data/train_{i}.txt" for i in range(5)]
+FOLD_TEST_FILES   = [f"/home/qhjiang/works/VDA/data/test_{i}.txt"  for i in range(5)]
+RESULTS_DIR       = "./results_vda_folds" 
+# ======== 与训练保持一致的超参（用于构建模型与负样本）========
+SEED              = 2025
+LATDIM            = 128
+GAT_DROPOUT       = 0.1
+GAT_ALPHA         = 0.2
+TEMPERATURE       = 0.05
+EDGE_DROP_RATE    = 0 
+DEG_LOSS_WEIGHT   = 0.4
+LAYERS            = 1
+TEST_NEG_PER_POS  = 1    # 测试集负样本倍率（训练脚本里用的值）
+
+def get_device() -> torch.device:
+    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def main():
+    device = get_device()
+    print(f"Device: {device}")
+
+    # 读取索引（可为空；规模可由数据推断）
+    drug_map  = load_indices_txt(PATH_DRUG_INDEX) if os.path.exists(PATH_DRUG_INDEX) else {}
+    virus_map = load_indices_txt(PATH_VIRUS_INDEX) if os.path.exists(PATH_VIRUS_INDEX) else {}
+
+    # 全局阳性（负样本屏蔽集合）
+    global_pos = load_pairs_txt(PATH_GLOBAL_POS) if os.path.exists(PATH_GLOBAL_POS) else np.empty((0,2), dtype=np.int64)
+    global_pos_set = build_pos_set(global_pos)
+
+    # 读取 5 折数据，并推断规模
+    folds = []
+    max_d = -1; max_v = -1
+    for i in range(5):
+        tr = load_pairs_txt(FOLD_TRAIN_FILES[i])
+        te = load_pairs_txt(FOLD_TEST_FILES[i])
+        folds.append((tr, te))
+        if len(tr) > 0:
+            max_d = max(max_d, int(tr[:,0].max())); max_v = max(max_v, int(tr[:,1].max()))
+        if len(te) > 0:
+            max_d = max(max_d, int(te[:,0].max())); max_v = max(max_v, int(te[:,1].max()))
+    if len(global_pos) > 0:
+        max_d = max(max_d, int(global_pos[:,0].max()))
+        max_v = max(max_v, int(global_pos[:,1].max()))
+
+    num_drugs   = max(max(drug_map.values()) + 1 if len(drug_map) > 0 else 0, max_d + 1)
+    num_viruses = max(max(virus_map.values()) + 1 if len(virus_map) > 0 else 0, max_v + 1)
+    print(f"#Drugs={num_drugs}, #Viruses={num_viruses}, #GlobalPos={len(global_pos)}")
+
+    all_aucs, all_auprs = [], []
+    all_f1s, all_precisions, all_recalls, all_accuracies = [], [], [], []
+
+    for fold_id, (train_pos, test_pos) in enumerate(folds, start=0):
+        print(f"\n===== Eval Fold {fold_id} =====  train={len(train_pos)}  test={len(test_pos)}")
+
+        # 构建与训练期相同的图（使用该折的训练集）
+        train_adj = build_bipartite_adj(num_drugs, num_viruses, train_pos)
+        adj_tensor = to_torch_sparse_from_scipy(train_adj.tocoo(), device)
+        
+        # Incidence matrices for hypergraph are built from the raw bipartite graph
+        H_d_sp, H_v_sp = build_incidence_from_bipartite(train_adj, drop_size1=False)
+        H_d_tensor = to_torch_sparse_from_scipy(H_d_sp.tocoo(), device)
+        H_v_tensor = to_torch_sparse_from_scipy(H_v_sp.tocoo(), device)
+
+        # 初始化与训练一致的模型结构
+        model = HyCoVDA(num_drugs, num_viruses,
+                           adj_dv=adj_tensor, 
+                           H_d=H_d_tensor, H_v=H_v_tensor,
+                           latdim=LATDIM,
+                           gat_dropout=GAT_DROPOUT, gat_alpha=GAT_ALPHA,
+                           temperature=TEMPERATURE,
+                           edge_drop_rate=EDGE_DROP_RATE, 
+                           n_layers = LAYERS,
+                           device=device).to(device)
+
+        # 加载该折的最佳 checkpoint
+        ckpt_path = os.path.join(RESULTS_DIR, f"best_model_fold{fold_id}.pt")
+        if not os.path.exists(ckpt_path):
+            print(f"[Fold {fold_id}] WARNING: checkpoint not found -> {ckpt_path}")
+            continue
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(ckpt["model_state"])
+        model.eval() # Set model to evaluation mode
+
+        # 生成与训练期间一致的“固定测试负样本”（同一随机种子 + 全局屏蔽）
+        test_neg_fixed = sample_fixed_negatives(
+            num_drugs, num_viruses, global_pos_set,
+            len(test_pos) * TEST_NEG_PER_POS,
+            seed=SEED + 1000 * fold_id
+        )
+
+        # 评估
+        test_auc, test_aupr, test_f1, test_precision, test_recall, test_acc = eval_on_pairs(
+            model, test_pos, num_drugs, num_viruses,
+            fixed_neg_pairs=test_neg_fixed, device=device
+        )
+
+        # 打印：重新评估结果 + ckpt中记录的最佳值（便于比对）
+        rec_auc  = ckpt.get("test_auc", None)
+        rec_aupr = ckpt.get("test_aupr", None)
+        print(f"[Fold {fold_id}] Loaded ckpt epoch={ckpt.get('epoch','?')}")
+        if rec_auc is not None and rec_aupr is not None:
+            print(f"[Fold {fold_id}] ckpt recorded:  Test AUC={rec_auc:.4f}  AUPR={rec_aupr:.4f}")
+        print(f"[Fold {fold_id}] re-evaluated: Test AUC={test_auc:.4f}  AUPR={test_aupr:.4f}  ({ckpt_path})")
+        print(f"[Fold {fold_id}] (at best F1): Precision={test_precision:.4f}  Recall={test_recall:.4f}  Accuracy={test_acc:.4f}")
+
+        all_aucs.append(test_auc)
+        all_auprs.append(test_aupr)
+        all_f1s.append(test_f1)
+        all_precisions.append(test_precision)
+        all_recalls.append(test_recall)
+        all_accuracies.append(test_acc)
+
+    if len(all_aucs) > 0:
+        print("\n===== Evaluation Summary =====")
+        for i, (a, p) in enumerate(zip(all_aucs, all_auprs), start=0):
+            print(f"Fold {i}: AUC={a:.4f}  AUPR={p:.4f} F1={all_f1s[i]:.4f}  Acc={all_accuracies[i]:.4f}")
+        print(f"Mean AUC={np.mean(all_aucs):.4f} ± {np.std(all_aucs):.4f}")
+        print(f"Mean AUPR={np.mean(all_auprs):.4f} ± {np.std(all_auprs):.4f}")
+        print(f"Mean F1={np.mean(all_f1s):.4f} ± {np.std(all_f1s):.4f}")
+        print(f"Mean Precision={np.mean(all_precisions):.4f} ± {np.std(all_precisions):.4f}")
+        print(f"Mean Recall={np.mean(all_recalls):.4f} ± {np.std(all_recalls):.4f}")
+        print(f"Mean Accuracy={np.mean(all_accuracies):.4f} ± {np.std(all_accuracies):.4f}")
+    else:
+        print("\nNo folds evaluated (missing checkpoints?).")
+
+if __name__ == "__main__":
+    main()
