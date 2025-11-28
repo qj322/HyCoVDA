@@ -1,20 +1,20 @@
-# Welcome to MGCL‑CAP: Masked Graph Contrastive Learning with Gated Cross‑Attention for Chemical Allergenicity Prediction
-Chemical allergens are common in consumer and industrial products and can trigger hypersensitivity with important public-health and regulatory implications. Traditional experimental screening is time-consuming and labor-intensive, slowing discovery and risk assessment. Existing computational approaches often rely on hand-crafted fingerprints and shallow classifiers, which do not adequately capture molecular topology or cross-modal dependencies, limiting generalization and interpretability. We propose MGCL-CAP, a deep learning framework for chemical allergenicity prediction that enhances molecular representation through masked graph contrastive learning and gated cross-attention fusion. MGCL-CAP performs random subgraph masking within a shared GIN encoder to learn structure-invariant graph embeddings that remain robust to missing or spurious substructures. These embeddings are then integrated with one-dimensional molecular fingerprints via multi-head gated cross-attention to align modalities and emphasize salient chemical cues. Experimental results show that MGCL-CAP outperforms state-of-the-art allergenicity predictors and remains stable across reasonable hyperparameter ranges. Interpretability analyses highlight substructures consistent with known sensitization mechanisms, providing mechanistic insight. Overall, MGCL-CAP offers a reliable tool for computational assessment of chemical allergenicity, enabling efficient candidate prioritization and supporting safer formulation design while reducing experimental burden.
+# Welcome to HyCoVDA: Self-Supervised Hypergraph Contrastive Learning for Virus–Drug Association
+Viral infections remain a major threat to global public health. Although antiviral drugs can significantly reduce disease burden, traditional drug development approaches that depend on biological experiments are often time consuming, costly, and inefficient. Computational methods provide a viable alternative to accelerate the discovery of potential antiviral agents by prioritizing candidates for further validation. In this work, we propose HyCoVDA, a novel framework for predicting virus–drug associations. HyCoVDA learns node representations from two complementary structural views. The first view models direct drug–virus interactions using a bipartite graph attention network. The second view captures higher-order relationships through drug-specific and virus-specific hypergraphs. To address the sparsity of known associations, we integrate a self-supervised contrastive loss that aligns representations from the two views, encouraging consistent and robust embeddings. In addition, we introduce an auxiliary degree regression objective to preserve global topological information in the learned representations. A prediction head adaptively combines generalized matrix factorization and multilayer perceptron components to score candidate associations. Experimental results demonstrate that HyCoVDA achieves AUC and AUPR scores of 0.892 and 0.889, respectively, outperforming five benchmark methods. Moreover, in a case study on SARS-CoV-2, 17 of the top 20 predicted drugs are supported by existing experimental evidence, and molecular docking analysis of two unreported candidates suggests potential disruption of the spike–ACE2 interaction. Overall, HyCoVDA not only achieves high predictive accuracy but also identifies biologically plausible drug candidates, demonstrating its practical value in antiviral drug discovery.
 
-![The workflow of this study](https://github.com/GGCL7/MGCL-CAP/blob/main/workflow.png)
+![The workflow of this study](https://github.com/qj322/HyCoVDA/main/workflow.png)
 
 
 ## 🔧 Installation instructions
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/GGCL7/MGCL-CAP.git
-cd MGCL-CAP
+git clone https://github.com/qj322/HyCoVDA.git
+cd HyCoVDA
 ```
 2. **Set up the Python environment**
 ```bash
-conda create -n mgclcap python=3.10
-conda activate mgclcap
+conda create -n hycovda python=3.10
+conda activate hycovda
 pip install -r requirements.txt
 ```
 ## Model Training
@@ -22,41 +22,22 @@ pip install -r requirements.txt
 Train the model from scratch:
 
 ```bash
-python main.py
+python train.py
 ```
-The training script will automatically save the model with the best validation **MCC** to `best_model.pth`.
+The training script will automatically save the model with the best validation to `best_model.pth`.
 
 ## Model Evaluation
 
 Evaluate the trained model:
 
 ```bash
-python evaluation.py
+python eval.py
 ```
 The script reports the following metrics:
 
+* AUC
+* AUPR
 * Accuracy
-* Sensitivity
-* Specificity
-* Matthews Correlation Coefficient (MCC)
-* Area Under the Curve (AUC)
-
-
-## 🛠️ Using MGCL-CAP for chemical allergenicity prediction
-
-## Single molecule prediction
-
-We provide a simple interface to predict allergenicity for a single SMILES string. For example, to predict the allergenicity of "C(CNC(NCCCC)=S)CC" with a pre-trained model:
-
-```bash
-python predict.py --smiles "C(CNC(NCCCC)=S)CC" --model-path best_model.pth
-```
-
-## Output example:
-
-```bash
-SMILES   : C(CNC(NCCCC)=S)CC
-Prob(+)  : 0.873241
-Label    : 1  (threshold=0.5)
-
-```
+* Precision
+* Recall
+* F1-score
